@@ -1,0 +1,5 @@
+# In addition to qlib's own dependencies (installed via `pip install pyqlib`
+# or `pip install -e .` from the repo root) and lightgbm (for the benchmark
+# model config), this pipeline needs:
+requests>=2.31
+pytest>=7.4   # for running tests/
