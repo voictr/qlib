@@ -113,6 +113,21 @@ cp .env.example .env
 # https://portal.cdp.coinbase.com/
 ```
 
+Use a **trade-only key** (View + Trade permissions, not Transfer/Withdraw) --
+that caps the damage if the key is ever exposed to unauthorized trades rather
+than fund movement.
+
+Then verify the credentials actually work before touching the data/training
+pipeline:
+
+```bash
+python check_connection.py
+```
+
+This only reads your account (equity, cash, current positions) -- it never
+submits an order. If this fails, nothing downstream will work either, so fix
+it here first.
+
 ## 4. Dry-run the live pipeline
 
 ```bash
@@ -179,6 +194,7 @@ flags are required for *every* execution, not just a "live" tier.
 | `signals.py` | Loads the trained model and generates today's prediction ranking |
 | `portfolio.py` | Topk-dropout target portfolio construction + order diffing (identical to the stock system's -- asset-agnostic, unit tested) |
 | `broker_coinbase.py` | Coinbase broker adapter (accounts, positions, price lookup, market orders), built on the official `coinbase-advanced-py` SDK |
+| `check_connection.py` | Read-only credential/connectivity smoke test -- run this before anything else |
 | `run_live_trading.py` | CLI entrypoint, with the stricter safety gates described above |
 | `tests/test_portfolio.py` | Unit tests for the order-sizing/turnover logic |
 
