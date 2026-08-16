@@ -1,0 +1,5 @@
+# In addition to qlib's own dependencies and lightgbm (for the benchmark
+# model config), this pipeline needs:
+coinbase-advanced-py>=1.8
+pandas>=1.5
+pytest>=7.4   # for running tests/
