@@ -76,11 +76,11 @@ def main() -> int:
     args = parse_args()
     logger = setup_logging()
 
-    if args.execute and not args.i_know_this_trades_real_money:
+    if args.execute and not (args.i_know_this_trades_real_money and os.environ.get("I_CONFIRM_LIVE_TRADING") == "yes"):
         logger.error(
-            "Refusing to execute: --execute requires --i-know-this-trades-real-money as well. "
-            "Coinbase has no paper-trading sandbox, so this is a deliberate double confirmation "
-            "before any order is real money."
+            "Refusing to execute: --execute requires BOTH --i-know-this-trades-real-money and "
+            "the environment variable I_CONFIRM_LIVE_TRADING=yes. Coinbase has no paper-trading "
+            "sandbox, so this is a deliberate double confirmation before any order is real money."
         )
         return 1
 

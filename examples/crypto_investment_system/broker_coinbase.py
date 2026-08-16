@@ -46,12 +46,6 @@ class CoinbaseCredentials:
                 "COINBASE_API_KEY and COINBASE_API_SECRET must be set in the environment. "
                 "Never hard-code credentials in config files or source."
             )
-        if os.environ.get("I_CONFIRM_LIVE_TRADING") != "yes":
-            raise CoinbaseConfigError(
-                "Coinbase has no paper-trading sandbox, so every order placed through this "
-                "adapter is real money from the first one. I_CONFIRM_LIVE_TRADING=yes is "
-                "required as a deliberate extra confirmation step before it will connect."
-            )
         return cls(api_key=api_key, api_secret=api_secret)
 
 
@@ -85,25 +79,31 @@ class CoinbaseBroker:
         warning -- it can't be valued or traded against this system's universe.
         """
         positions: dict[str, float] = {}
-        cursor = None
-        while True:
-            resp = self._client.get_accounts(cursor=cursor) if cursor else self._client.get_accounts()
-            for account in resp.accounts or []:
-                if account.currency in self.STABLE_CASH_CURRENCIES:
-                    continue
-                qty = float(account.available_balance.value) if account.available_balance else 0.0
-                if qty <= 0:
-                    continue
-                positions[f"{account.currency}-USD"] = qty
-            if not getattr(resp, "has_next", False):
-                break
-            cursor = resp.cursor
-
+        for account in self._list_all_accounts():
+            if account.currency in self.STABLE_CASH_CURRENCIES:
+                continue
+            qty = float(account.available_balance.value) if account.available_balance else 0.0
+            if qty <= 0:
+                continue
+            positions[f"{account.currency}-USD"] = qty
         return positions
 
+    def _list_all_accounts(self) -> list:
+        accounts: list = []
+        cursor = None
+        try:
+            while True:
+                resp = self._client.get_accounts(cursor=cursor) if cursor else self._client.get_accounts()
+                accounts.extend(resp.accounts or [])
+                if not getattr(resp, "has_next", False):
+                    break
+                cursor = resp.cursor
+        except Exception as e:  # noqa: BLE001 -- surface as our own error type
+            raise CoinbaseAPIError(f"Failed to list accounts: {e}") from e
+        return accounts
+
     def get_cash_balance(self) -> float:
-        resp = self._client.get_accounts()
-        for account in resp.accounts or []:
+        for account in self._list_all_accounts():
             if account.currency == "USD" and account.available_balance:
                 return float(account.available_balance.value)
         return 0.0
