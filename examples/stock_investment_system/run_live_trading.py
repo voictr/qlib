@@ -32,7 +32,7 @@ import sys
 from pathlib import Path
 
 from broker_alpaca import AlpacaBroker, AlpacaConfigError, AlpacaAPIError, AlpacaCredentials
-from portfolio import Order, build_orders
+from portfolio import build_orders
 from research import research_orders
 from signals import NoTrainedModelError, generate_today_signal
 
@@ -112,7 +112,7 @@ def main() -> int:
     logger.info(f"Account equity: ${equity:,.2f} | current positions: {len(current_holdings)} | market_open={market_open}")
 
     try:
-        scores, prices, predict_date = generate_today_signal(
+        scores, prices, volatility, predict_date = generate_today_signal(
             experiment_name=args.experiment_name,
             provider_uri=os.path.expanduser(args.provider_uri),
             region=args.region,
@@ -128,6 +128,7 @@ def main() -> int:
         scores=scores,
         current_holdings=current_holdings,
         prices=prices,
+        volatility=volatility,
         account_equity=equity,
         topk=args.topk,
         n_drop=args.n_drop,

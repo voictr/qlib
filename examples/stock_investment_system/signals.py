@@ -44,11 +44,17 @@ def generate_today_signal(
     region: str,
     predict_date: str | None = None,
     lookback_days: int = 260,
-) -> tuple[pd.Series, pd.Series, pd.Timestamp]:
-    """Return (scores, prices, predict_date) for the requested trading day.
+    volatility_lookback_days: int = 30,
+) -> tuple[pd.Series, pd.Series, pd.Series, pd.Timestamp]:
+    """Return (scores, prices, volatility, predict_date) for the requested trading day.
 
     scores: predicted signal per instrument, sorted descending (best first).
     prices: that day's close price per instrument, used to size orders.
+    volatility: trailing daily-return std per instrument over the last
+        `volatility_lookback_days` trading days, used to risk-adjust
+        position sizing (see portfolio.build_orders). An instrument with too
+        little history to compute a std (e.g. newly listed) is simply
+        absent from this series rather than given a made-up value.
     predict_date: the actual trading day used (defaults to the latest one
         available in the qlib calendar).
     """
@@ -91,7 +97,14 @@ def generate_today_signal(
     if not symbols:
         raise RuntimeError(f"Model produced no predictions for {predict_date}. Check the instrument universe/data.")
 
-    close_df = D.features(symbols, ["$close"], start_time=predict_date, end_time=predict_date, freq="day")
-    prices = close_df["$close"].groupby(level="instrument").last()
+    # One fetch covers both today's price and the trailing window volatility
+    # is computed from, instead of a separate single-day request for each.
+    vol_start_idx = max(0, predict_idx - volatility_lookback_days)
+    vol_start = calendar[vol_start_idx]
+    close_df = D.features(symbols, ["$close"], start_time=vol_start, end_time=predict_date, freq="day")
+    close_wide = close_df["$close"].unstack(level="instrument")
 
-    return scores, prices, predict_date
+    prices = close_wide.iloc[-1].dropna()
+    volatility = close_wide.pct_change().std().dropna()
+
+    return scores, prices, volatility, predict_date

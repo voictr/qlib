@@ -147,11 +147,32 @@ one blocks execution. This is intentional friction: a stray environment
 variable or a copy-pasted cron line should never be enough, on its own, to
 start trading real money.
 
+## Portfolio construction
+
+Position sizes are **not** equal-weighted across the topk set. Within the
+names selected for this rebalance, capital is tilted toward higher-ranked
+and lower-volatility names -- a heuristic risk adjustment (similar in spirit
+to inverse-volatility/risk-parity weighting), not a full mean-variance
+optimum. It deliberately does *not* model correlation between names via a
+covariance matrix: a sample covariance estimated from limited history is a
+well-known source of unstable, overfit weights without careful shrinkage,
+which is more failure surface than this needs. `--max-position-pct` is what
+bounds single-name concentration instead, regardless of what the weighting
+formula would otherwise assign. See `portfolio.py`'s `_signal_vol_weights`
+for the exact math, and `signals.py` for how volatility is computed (trailing
+30-day daily-return std, pulled from the same qlib data used for prices).
+
+If qlib's own `EnhancedIndexingStrategy` (optimization-based, `examples/portfolio/`
+in this repo) is ever wired into live execution here, that would be the next
+step up in sophistication -- full mean-variance with a proper risk model
+rather than this system's simpler heuristic.
+
 ## Risk controls built in
 
 - **Dry run by default.** `--execute` is required to send any order.
 - **Position cap.** `--max-position-pct` (default 10%) caps how much of the
-  account a single name can be sized to, regardless of the equal-weight math.
+  account a single name can be sized to, regardless of the signal/volatility
+  weighting math.
 - **Cash buffer.** `--cash-buffer-pct` (default 2%) leaves a slice of the
   account uninvested.
 - **Bounded turnover.** `--topk`/`--n-drop` (topk-dropout, same idea as
@@ -169,10 +190,12 @@ start trading real money.
   account assumptions.
 - No real-time intraday execution -- this is a once-a-day rebalance, not a
   trading bot reacting to intraday moves.
-- No portfolio-level risk modeling (correlation, volatility) beyond simple
-  position caps -- see `examples/portfolio/` in this repo for qlib's
-  optimization-based `EnhancedIndexingStrategy` if you want that, though
-  wiring it into live execution here would be further work.
+- No correlation/covariance modeling between names -- volatility is used
+  per-name (see "Portfolio construction" above), but not how names move
+  together, so concentration in a correlated sector/theme isn't detected.
+  See `examples/portfolio/` in this repo for qlib's optimization-based
+  `EnhancedIndexingStrategy` if you want full mean-variance, though wiring
+  it into live execution here would be further work.
 - Nothing here is investment advice. Past backtest performance does not
   predict future results; you are responsible for understanding and
   accepting the risk of any capital you put behind this.

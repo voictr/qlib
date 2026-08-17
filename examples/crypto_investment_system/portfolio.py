@@ -68,10 +68,43 @@ def select_target_symbols(scores: pd.Series, current_holdings: dict[str, float],
     return list(target)
 
 
+_MIN_VOLATILITY = 1e-4  # floor so a near-zero/zero vol reading can't blow up the weight
+
+
+def _signal_vol_weights(target_syms: list[str], scores: pd.Series, volatility: pd.Series) -> dict[str, float]:
+    """Weight = rank-based signal strength / volatility, normalized to sum to 1.
+
+    Rank (not raw score) is used for signal strength because raw model output
+    isn't necessarily meaningfully scaled or always positive -- but within a
+    topk set we do know the *order* is meaningful. The best-ranked target
+    symbol gets strength `n`, the worst gets `1`. Dividing by volatility
+    tilts capital away from noisier names for the same rank, similar to an
+    inverse-volatility/risk-parity adjustment -- a name can end up weighted
+    more than a better-ranked one if it's meaningfully calmer.
+
+    No covariance/correlation between names is modeled -- this treats each
+    position's risk independently, not full mean-variance optimization. That
+    trade-off is deliberate: a sample covariance matrix estimated from
+    limited history is a well-known source of overfit, unstable weights
+    without shrinkage, which is more failure surface than this needs.
+    """
+    if not target_syms:
+        return {}
+
+    ranked = scores.reindex(target_syms).sort_values(ascending=False)
+    n = len(ranked)
+    strength = pd.Series(range(n, 0, -1), index=ranked.index)  # best -> n, worst -> 1
+    vol = volatility.reindex(ranked.index).clip(lower=_MIN_VOLATILITY)
+
+    raw_weight = strength / vol
+    return (raw_weight / raw_weight.sum()).to_dict()
+
+
 def build_orders(
     scores: pd.Series,
     current_holdings: dict[str, float],
     prices: pd.Series,
+    volatility: pd.Series,
     account_equity: float,
     topk: int,
     n_drop: int,
@@ -79,13 +112,29 @@ def build_orders(
     max_position_pct: float = 0.10,
     min_trade_value: float = 5.0,
 ) -> list[Order]:
-    """Diff the target equal-weight topk portfolio against current holdings.
+    """Diff the target signal+volatility-weighted topk portfolio against current holdings.
 
+    Position sizes are not equal-weighted: within the topk set, capital is
+    tilted toward higher-ranked and lower-volatility names (see
+    `_signal_vol_weights`), then capped per name. This is a heuristic
+    risk adjustment, not a mean-variance optimum -- it ignores correlation
+    between names, which `max_position_pct` partially compensates for by
+    bounding single-name concentration regardless of how the weighting
+    formula scores it.
+
+    volatility: recent realized volatility per symbol (e.g. trailing daily
+        return std) -- higher means a smaller weight for the same rank. A
+        target symbol missing from this series is treated like a missing
+        price: excluded from this rebalance rather than guessed at.
     account_equity: total account value (cash + positions) to size the
         portfolio against.
     cash_buffer_pct: fraction of equity to deliberately leave uninvested.
     max_position_pct: hard cap on how much of equity a single name can be
-        sized to, applied per stock regardless of equal-weight math.
+        sized to, applied per stock regardless of what the weighting
+        formula would otherwise assign it. Capped excess is not
+        redistributed to other names -- it's left as additional cash buffer
+        for this rebalance, which keeps the sizing logic simple and avoids
+        another source of estimation error compounding on top of the weights.
     min_trade_value: skip orders smaller than this (avoids order-spam from
         rounding noise).
 
@@ -99,11 +148,16 @@ def build_orders(
     if not 0 < max_position_pct <= 1:
         raise ValueError("max_position_pct must be in (0, 1]")
 
-    target_syms = [s for s in select_target_symbols(scores, current_holdings, topk, n_drop) if s in prices.index]
+    target_syms = [
+        s
+        for s in select_target_symbols(scores, current_holdings, topk, n_drop)
+        if s in prices.index and s in volatility.index
+    ]
 
     investable_equity = account_equity * (1 - cash_buffer_pct)
     per_stock_cap = account_equity * max_position_pct
-    target_value_per_stock = min(investable_equity / max(len(target_syms), 1), per_stock_cap) if target_syms else 0.0
+    weights = _signal_vol_weights(target_syms, scores, volatility)
+    target_values = {sym: min(w * investable_equity, per_stock_cap) for sym, w in weights.items()}
 
     all_syms = set(target_syms) | set(current_holdings)
     orders: list[Order] = []
@@ -113,7 +167,7 @@ def build_orders(
             continue
 
         current_value = current_holdings.get(sym, 0.0) * price
-        target_value = target_value_per_stock if sym in target_syms else 0.0
+        target_value = target_values.get(sym, 0.0)
         delta = target_value - current_value
 
         if abs(delta) < min_trade_value:

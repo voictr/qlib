@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from portfolio import Order, build_orders, select_target_symbols
+from portfolio import Order, _signal_vol_weights, build_orders, select_target_symbols
 
 
 def test_select_target_symbols_basic_topk():
@@ -47,13 +47,46 @@ def test_order_rejects_bad_side_and_notional():
         Order(symbol="A", side="buy", notional=0)
 
 
-def test_build_orders_buys_into_empty_portfolio():
+def test_signal_vol_weights_equal_volatility_is_pure_rank():
+    scores = pd.Series({"A": 5, "B": 4, "C": 3})
+    volatility = pd.Series({"A": 0.02, "B": 0.02, "C": 0.02})
+    weights = _signal_vol_weights(["A", "B", "C"], scores, volatility)
+    # strengths 3, 2, 1 -> weights 3/6, 2/6, 1/6
+    assert weights["A"] == pytest.approx(0.5)
+    assert weights["B"] == pytest.approx(1 / 3)
+    assert weights["C"] == pytest.approx(1 / 6)
+
+
+def test_signal_vol_weights_lower_volatility_can_outweigh_better_rank():
+    # A ranks better than B but is 100x more volatile -- B should end up
+    # with more weight despite the worse rank.
+    scores = pd.Series({"A": 2, "B": 1})
+    volatility = pd.Series({"A": 1.0, "B": 0.01})
+    weights = _signal_vol_weights(["A", "B"], scores, volatility)
+    assert weights["B"] > weights["A"]
+
+
+def test_signal_vol_weights_zero_volatility_does_not_blow_up():
+    scores = pd.Series({"A": 1, "B": 1})
+    volatility = pd.Series({"A": 0.0, "B": 0.02})
+    weights = _signal_vol_weights(["A", "B"], scores, volatility)
+    assert all(w == w for w in weights.values())  # no NaN
+    assert all(w > 0 for w in weights.values())
+
+
+def test_signal_vol_weights_empty_target_returns_empty():
+    assert _signal_vol_weights([], pd.Series(dtype=float), pd.Series(dtype=float)) == {}
+
+
+def test_build_orders_buys_into_empty_portfolio_weighted_by_rank():
     scores = pd.Series({"A": 5, "B": 4, "C": 3})
     prices = pd.Series({"A": 100.0, "B": 50.0, "C": 20.0})
+    volatility = pd.Series({"A": 0.02, "B": 0.02, "C": 0.02})  # equal -> pure rank weighting
     orders = build_orders(
         scores,
         current_holdings={},
         prices=prices,
+        volatility=volatility,
         account_equity=10_000,
         topk=2,
         n_drop=0,
@@ -63,19 +96,22 @@ def test_build_orders_buys_into_empty_portfolio():
     order_by_sym = {o.symbol: o for o in orders}
     assert set(order_by_sym) == {"A", "B"}
     assert all(o.side == "buy" for o in orders)
-    assert order_by_sym["A"].notional == pytest.approx(5000.0)
-    assert order_by_sym["B"].notional == pytest.approx(5000.0)
+    # rank strengths 2, 1 -> weights 2/3, 1/3 of $10,000
+    assert order_by_sym["A"].notional == pytest.approx(6666.67, abs=0.01)
+    assert order_by_sym["B"].notional == pytest.approx(3333.33, abs=0.01)
 
 
 def test_build_orders_sells_positions_that_drop_out_of_target():
     scores = pd.Series({"A": 5, "B": 4, "C": 3})
     prices = pd.Series({"A": 100.0, "B": 50.0, "C": 20.0})
+    volatility = pd.Series({"A": 0.02, "B": 0.02})
     # C currently held, but is the worst-ranked name in the combined
     # candidate pool -- with one sell allowed (n_drop=1) it gets dropped.
     orders = build_orders(
         scores,
         current_holdings={"C": 100},
         prices=prices,
+        volatility=volatility,
         account_equity=10_000,
         topk=2,
         n_drop=1,
@@ -90,10 +126,12 @@ def test_build_orders_sells_positions_that_drop_out_of_target():
 def test_build_orders_respects_max_position_pct_cap():
     scores = pd.Series({"A": 1})
     prices = pd.Series({"A": 10.0})
+    volatility = pd.Series({"A": 0.02})
     orders = build_orders(
         scores,
         current_holdings={},
         prices=prices,
+        volatility=volatility,
         account_equity=10_000,
         topk=1,
         n_drop=0,
@@ -107,10 +145,12 @@ def test_build_orders_respects_max_position_pct_cap():
 def test_build_orders_skips_tiny_deltas():
     scores = pd.Series({"A": 1})
     prices = pd.Series({"A": 10.0})
+    volatility = pd.Series({"A": 0.02})
     orders = build_orders(
         scores,
         current_holdings={"A": 999.9},  # already ~ target value ($10,000), tiny delta
         prices=prices,
+        volatility=volatility,
         account_equity=10_000,
         topk=1,
         n_drop=0,
@@ -125,16 +165,38 @@ def test_build_orders_ignores_untracked_held_symbol():
     # Z is held but has no score/price -> left alone, not liquidated.
     scores = pd.Series({"A": 1})
     prices = pd.Series({"A": 10.0})
+    volatility = pd.Series({"A": 0.02})
     orders = build_orders(
-        scores, current_holdings={"Z": 50}, prices=prices, account_equity=10_000, topk=1, n_drop=0
+        scores, current_holdings={"Z": 50}, prices=prices, volatility=volatility, account_equity=10_000, topk=1, n_drop=0
     )
     assert all(o.symbol != "Z" for o in orders)
+
+
+def test_build_orders_excludes_target_symbol_missing_volatility():
+    # B is in range for topk but has no volatility reading -> excluded from
+    # sizing entirely, same treatment as a missing price.
+    scores = pd.Series({"A": 5, "B": 4})
+    prices = pd.Series({"A": 100.0, "B": 50.0})
+    volatility = pd.Series({"A": 0.02})  # B missing
+    orders = build_orders(
+        scores,
+        current_holdings={},
+        prices=prices,
+        volatility=volatility,
+        account_equity=10_000,
+        topk=2,
+        n_drop=0,
+        cash_buffer_pct=0.0,
+        max_position_pct=1.0,
+    )
+    assert {o.symbol for o in orders} == {"A"}
 
 
 def test_build_orders_rejects_bad_params():
     scores = pd.Series({"A": 1})
     prices = pd.Series({"A": 10.0})
+    volatility = pd.Series({"A": 0.02})
     with pytest.raises(ValueError):
-        build_orders(scores, {}, prices, 10_000, topk=1, n_drop=0, cash_buffer_pct=1.5)
+        build_orders(scores, {}, prices, volatility, 10_000, topk=1, n_drop=0, cash_buffer_pct=1.5)
     with pytest.raises(ValueError):
-        build_orders(scores, {}, prices, 10_000, topk=1, n_drop=0, max_position_pct=0)
+        build_orders(scores, {}, prices, volatility, 10_000, topk=1, n_drop=0, max_position_pct=0)

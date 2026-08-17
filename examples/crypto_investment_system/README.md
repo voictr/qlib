@@ -181,6 +181,21 @@ for. A simple way to schedule it:
   >> logs/cron.log 2>&1
 ```
 
+## Portfolio construction
+
+Position sizes are **not** equal-weighted across the topk set -- capital is
+tilted toward higher-ranked and lower-volatility coins (trailing 30-day
+daily-return std), a heuristic risk adjustment rather than a full
+mean-variance optimum. This matters more here than for stocks: the universe
+spans majors like BTC/ETH down to thin small-caps whose volatility can be an
+order of magnitude apart, so equal-weighting would have put the same dollar
+bet on a stablecoin-adjacent major and a wildly noisy micro-cap. No
+correlation between coins is modeled -- `--max-position-pct` is what bounds
+single-name concentration instead. See
+`examples/stock_investment_system/README.md` § Portfolio construction for
+the full rationale (the logic in `portfolio.py` is identical) and
+`signals.py` for how volatility is computed.
+
 ## Risk controls built in
 
 Same shape as the stock system (`--max-position-pct`, `--cash-buffer-pct`,
@@ -196,7 +211,8 @@ flags are required for *every* execution, not just a "live" tier.
 - No liquidity/manipulation filtering of the universe -- see "On universe
   breadth" above.
 - No real-time intraday execution -- a once-a-day rebalance.
-- No portfolio-level risk modeling beyond simple position caps.
+- No correlation/covariance modeling between coins -- volatility is used
+  per-name, but not how coins move together.
 - Nothing here is investment advice. Crypto markets are more volatile and
   less regulated than equities; a good backtest here is weaker evidence of
   future performance than the same backtest would be for stocks.
