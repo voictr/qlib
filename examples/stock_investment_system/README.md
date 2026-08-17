@@ -88,6 +88,20 @@ portfolio, and the buy/sell orders needed to get there from your current
 Alpaca positions. Nothing is sent to Alpaca. Run this daily for a while and
 sanity-check the output before trusting it with `--execute`.
 
+### Optional: research notes on each proposed order
+
+If `ANTHROPIC_API_KEY` is set (see `.env.example`), each proposed order gets
+a short research note from Claude with web search -- a check for recent,
+significant news the price-based model has no way to know about (earnings
+surprises, regulatory action, lawsuits, executive departures, M&A) before you
+decide whether to `--execute`. Each note ends with a flag: `CLEAR`, `WATCH`,
+or `CAUTION`.
+
+**This is informational only.** It never filters, blocks, or resizes an
+order -- the model already decided what to trade; the note just gives you
+one more thing to read before *you* decide. Skip it with `--skip-research`,
+or just don't set `ANTHROPIC_API_KEY`.
+
 ## 5. Paper trade for real
 
 ```bash
@@ -170,6 +184,7 @@ start trading real money.
 | `workflow_config_us_lightgbm.yaml` | qlib training/backtest config (LightGBM + Alpha158, SP500 universe) |
 | `signals.py` | Loads the trained model and generates today's prediction ranking |
 | `portfolio.py` | Topk-dropout target portfolio construction + order diffing (pure logic, unit tested) |
+| `research.py` | Optional per-order research note via Claude + web search -- informational only, never blocks a trade |
 | `broker_alpaca.py` | Minimal Alpaca REST client (account, positions, orders, market clock) |
 | `run_live_trading.py` | CLI entrypoint tying the above together, with the safety gates described above |
 | `tests/test_portfolio.py` | Unit tests for the order-sizing/turnover logic |

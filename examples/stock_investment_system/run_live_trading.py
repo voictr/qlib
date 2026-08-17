@@ -16,6 +16,11 @@ Safety model (read this before running with --execute):
 
 Intended usage is one run per rebalance (e.g. once daily near market open),
 invoked by cron/systemd/a scheduled CI job -- see README.md.
+
+Optional research step: once orders are computed, if ANTHROPIC_API_KEY is
+set, each proposed order gets a short web-search-backed research note
+(research.py) -- purely informational, printed alongside the order so you
+have it before deciding whether to --execute. Skip with --skip-research.
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ from pathlib import Path
 
 from broker_alpaca import AlpacaBroker, AlpacaConfigError, AlpacaAPIError, AlpacaCredentials
 from portfolio import Order, build_orders
+from research import research_orders
 from signals import NoTrainedModelError, generate_today_signal
 
 LOG_DIR = Path(__file__).parent / "logs"
@@ -65,6 +71,11 @@ def parse_args() -> argparse.Namespace:
         "--i-know-this-trades-real-money",
         action="store_true",
         help="Required in addition to I_CONFIRM_LIVE_TRADING=yes to execute orders in live mode",
+    )
+    p.add_argument(
+        "--skip-research",
+        action="store_true",
+        help="Skip the web-search research note per order, even if ANTHROPIC_API_KEY is set",
     )
     return p.parse_args()
 
@@ -132,6 +143,15 @@ def main() -> int:
     logger.info(f"Target orders ({len(orders)}):")
     for o in orders:
         logger.info(f"  {o.side.upper():4s} {o.symbol:8s} ${o.notional:,.2f}")
+
+    if args.skip_research:
+        logger.info("Research step skipped (--skip-research).")
+    elif not os.environ.get("ANTHROPIC_API_KEY"):
+        logger.info("Research step skipped: ANTHROPIC_API_KEY is not set.")
+    else:
+        logger.info("Researching proposed orders (this is informational only -- it does not filter or block any trade)...")
+        for note in research_orders(orders):
+            logger.info(f"  [{note.flag}] {note.symbol}: {note.summary}")
 
     if not args.execute:
         logger.info("DRY RUN complete -- no orders were sent. Re-run with --execute to submit them.")

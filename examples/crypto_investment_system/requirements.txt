@@ -2,4 +2,5 @@
 # model config), this pipeline needs:
 coinbase-advanced-py>=1.8
 pandas>=1.5
+anthropic>=0.90   # optional: only needed for the research.py step
 pytest>=7.4   # for running tests/

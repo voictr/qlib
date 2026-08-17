@@ -141,6 +141,22 @@ and actually read the output** before trusting it with `--execute` -- this is
 the only no-risk feedback loop you get, since there's no paper account behind
 it.
 
+### Optional: research notes on each proposed order
+
+If `ANTHROPIC_API_KEY` is set (see `.env.example`), each proposed order gets
+a short research note from Claude with web search -- a check for recent,
+significant news the price-based model has no way to know about (exploits,
+depegs, exchange delistings, regulatory action, a project going dark) before
+you decide whether to `--execute`. This matters more here than for stocks:
+the universe is every USD-quoted Coinbase pair, including thin, easily
+manipulated small-cap tokens where a single bad headline is the whole story.
+Each note ends with a flag: `CLEAR`, `WATCH`, or `CAUTION`.
+
+**This is informational only.** It never filters, blocks, or resizes an
+order -- the model already decided what to trade; the note just gives you
+one more thing to read before *you* decide. Skip it with `--skip-research`,
+or just don't set `ANTHROPIC_API_KEY`.
+
 ## 5. Going live (real money, no smaller step available)
 
 ```bash
@@ -193,6 +209,7 @@ flags are required for *every* execution, not just a "live" tier.
 | `workflow_config_crypto_lightgbm.yaml` | qlib training/backtest config (LightGBM + Alpha158, all Coinbase USD pairs) |
 | `signals.py` | Loads the trained model and generates today's prediction ranking |
 | `portfolio.py` | Topk-dropout target portfolio construction + order diffing (identical to the stock system's -- asset-agnostic, unit tested) |
+| `research.py` | Optional per-order research note via Claude + web search -- informational only, never blocks a trade |
 | `broker_coinbase.py` | Coinbase broker adapter (accounts, positions, price lookup, market orders), built on the official `coinbase-advanced-py` SDK |
 | `check_connection.py` | Read-only credential/connectivity smoke test -- run this before anything else |
 | `run_live_trading.py` | CLI entrypoint, with the stricter safety gates described above |

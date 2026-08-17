@@ -2,4 +2,5 @@
 # or `pip install -e .` from the repo root) and lightgbm (for the benchmark
 # model config), this pipeline needs:
 requests>=2.31
+anthropic>=0.90   # optional: only needed for the research.py step
 pytest>=7.4   # for running tests/
