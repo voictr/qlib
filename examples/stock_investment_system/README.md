@@ -76,6 +76,16 @@ defaults to `paper` if unset -- you have to opt into `live` explicitly, and
 even then `run_live_trading.py` requires a second, separate confirmation
 before it will submit a real order (see below).
 
+Before anything else, confirm the credentials actually work:
+
+```bash
+pip install -r requirements.txt
+python check_connection.py
+```
+
+This is read-only -- it prints account equity, cash, buying power, current
+positions, and whether the market is open, and never submits an order.
+
 ## 4. Dry-run the live pipeline
 
 ```bash
@@ -209,6 +219,7 @@ rather than this system's simpler heuristic.
 | `portfolio.py` | Topk-dropout target portfolio construction + order diffing (pure logic, unit tested) |
 | `research.py` | Optional per-order research note via Claude + web search -- informational only, never blocks a trade |
 | `broker_alpaca.py` | Minimal Alpaca REST client (account, positions, orders, market clock) |
+| `check_connection.py` | Read-only credential/connectivity smoke test -- run this before anything else |
 | `run_live_trading.py` | CLI entrypoint tying the above together, with the safety gates described above |
 | `tests/test_portfolio.py` | Unit tests for the order-sizing/turnover logic |
 
